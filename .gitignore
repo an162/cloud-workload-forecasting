@@ -2,3 +2,7 @@
 .venv/
 .pytest_cache/
 __pycache__/
+# Extracted data-v1 release: downloadable, versioned, and SUBMISSION.md
+# forbids committing copies of the upstream Azure release.
+challenge_data/*
+!challenge_data/README.md

@@ -11,6 +11,52 @@ class TimeSplit:
     validation_end: pd.Timestamp
 
 
+@dataclass(frozen=True)
+class Fold:
+    """One expanding-window fold, addressed by position rather than by date."""
+
+    index: int
+    origin: int
+    horizon: int
+
+    @property
+    def train_slice(self) -> slice:
+        return slice(0, self.origin)
+
+    @property
+    def test_slice(self) -> slice:
+        return slice(self.origin, self.origin + self.horizon)
+
+
+def expanding_window_folds(
+    n_obs: int, horizon: int, min_train: int, step: int = 1
+) -> list[Fold]:
+    """Expanding-window origins for a positionally indexed series.
+
+    Fold `i` fits on `[0, origin)` and forecasts `[origin, origin + horizon)`.
+    Origins start at `min_train` and advance by `step` while a full horizon
+    still fits, so no fold is ever scored on a partial path and no training
+    slice can touch its own test slice.
+
+    Positional (not timestamp-based) addressing keeps this usable on the raw
+    integer timestamp grid, and means a substituted dataset of any length
+    yields however many folds it supports.
+    """
+    if horizon <= 0:
+        raise ValueError("horizon must be positive")
+    if min_train <= 0:
+        raise ValueError("min_train must be positive")
+    if step <= 0:
+        raise ValueError("step must be positive")
+
+    folds: list[Fold] = []
+    origin = min_train
+    while origin + horizon <= n_obs:
+        folds.append(Fold(index=len(folds), origin=origin, horizon=horizon))
+        origin += step
+    return folds
+
+
 def rolling_origin_splits(
     frame: pd.DataFrame,
     timestamp_col: str = "timestamp",
