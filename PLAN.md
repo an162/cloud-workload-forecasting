@@ -67,9 +67,21 @@ planners provision than the unweighted mean.
   persistence with a warning.
 - Early folds forecast into the steps 53-72 bump. That is the built-in
   stress test and the centre of the failure analysis.
-- Selection rule, fixed now: lowest mean MAE over the H-step path; within
-  one fold-standard-deviation, the simpler model wins.
+- Selection rule (**amended before freezing**, DECISIONS entry 19): lowest
+  mean MAE over the H-step path; the tie-band is **one standard error of the
+  paired per-fold MAE difference** against the leader, and within that band
+  the simpler model wins.
+  - Superseded rule: the band was one fold-standard-deviation of the
+    winner's own MAE. That measures how much fold *difficulty* varies, not
+    how reliably one model beats another; because folds overlap it admitted
+    5 of 9 candidates (band 0.1949-0.2489, down to `persistence`) and would
+    have selected `train_mean`. Pairing cancels the shared fold difficulty
+    and narrows the band to 0.0071, admitting exactly two models.
+  - No significance claim attaches to the standard error: folds overlap, so
+    it is a comparison scale, not a test.
 - Freeze, commit, then refit on all `N` and score the holdout once.
+- **Frozen:** `profile_train_mean` (`cwfc/frozen.py`), committed before any
+  holdout scoring.
 
 ## 3. Models (settled)
 
