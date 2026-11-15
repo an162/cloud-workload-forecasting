@@ -22,10 +22,44 @@ single prediction was too high (bias == MAE == +0.18).
 
 from __future__ import annotations
 
+from cwfc.baselines import persistence
 from cwfc.models import profile_train_mean
+from cwfc.targets import ACTIVE_VM_COUNT, AGGREGATE_CPU
 
 SELECTED_MODEL_NAME = "profile_train_mean"
 SELECTED_MODEL = profile_train_mean
+
+#: Which model forecasts which target. Declared as configuration rather than
+#: a branch inside the prediction code, so `active_vm_count` is handled by the
+#: same machinery as everything else (PLAN 1.4: "no special case in code").
+#: It gets persistence because it is constant by curation, not because the
+#: pipeline knows anything special about it.
+MODEL_BY_TARGET = {
+    AGGREGATE_CPU: profile_train_mean,
+    ACTIVE_VM_COUNT: persistence,
+}
+
+MODEL_NAME_BY_TARGET = {
+    AGGREGATE_CPU: "profile_train_mean",
+    ACTIVE_VM_COUNT: "persistence",
+}
+
+#: Output domains enforced on the final predictions (PLAN 7, SUBMISSION.md).
+#: `active_vm_count` is additionally rounded to a whole number of VMs.
+OUTPUT_BOUNDS = {
+    AGGREGATE_CPU: (0.0, 100.0),
+    ACTIVE_VM_COUNT: (0.0, None),
+}
+
+INTEGER_TARGETS = (ACTIVE_VM_COUNT,)
+
+#: Exact column order required by SUBMISSION.md. Declared here so the writer
+#: cannot drift from the contract.
+SUBMISSION_COLUMNS = ("timestamp", ACTIVE_VM_COUNT, AGGREGATE_CPU)
+
+#: Band quantile for the capacity policy. q = C_under / (C_under + C_over),
+#: so 0.9 asserts that running short costs nine times what idling costs.
+BAND_QUANTILE = 0.9
 
 HOLDOUT_SIZE = 24
 ORIGIN_STEP = 3

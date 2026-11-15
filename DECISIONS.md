@@ -288,3 +288,72 @@ Supporting evidence: `corr(profile effect, train_mean per-phase bias) = −0.966
 Bias equal to MAE means no error changed sign. Fold-sequence bias runs −0.289 (during the bump rise) to +0.211 (during the slide): a mean-anchored model lagging a trend in both directions.
 
 **Why this matters and why it did not change the selection:** the holdout immediately follows the slide, so if the decline continues, the selected model will over-forecast it and `persistence` would have scored better. Acting on that would mean selecting a model using knowledge of where the holdout sits in the series, which is exactly the leakage the protocol forbids. The honest position is to select on the training evidence, state this failure mode in advance, and let the holdout confirm or refute it. For capacity purposes the direction is the safe one (over-forecasting adds headroom), which is noted in the policy section.
+
+---
+
+## 23. Band estimated leave-one-fold-out, applied pooled
+
+**Choice (PLAN §5):** Residuals are pooled into horizon buckets (1-6, 7-12, 13-24) and the band increment is the q-quantile of the *under-forecast* distribution (`actual - forecast`). Two estimation modes, used for different purposes:
+
+- **Leave-one-fold-out** to *measure* what the policy will cost: each fold's band comes from the other 12 folds, so no fold is ever provisioned using its own residuals.
+- **Pooled over all folds** to *build* the band actually shipped, since every fold is training-window data.
+
+**Alternatives considered:** Pooled estimation for both. Rejected: it reports a breach rate that the policy will not achieve in production.
+
+**Reason:** PLAN §7's leakage rule ("percentiles fitted on training data of the fold only") applies to the band as much as to a model. The difference is measurable and in the expected direction — pooled estimation flatters the policy:
+
+| q | target breach | pooled (in-sample) | leave-one-fold-out |
+|---:|---:|---:|---:|
+| 0.80 | 0.200 | 0.205 | **0.228** |
+| 0.90 | 0.100 | 0.103 | **0.125** |
+| 0.95 | 0.050 | 0.051 | **0.077** |
+
+**Also decided:** a negative increment is floored at zero. At long horizons the model over-forecasts often enough that the 80th-percentile shortfall is already a surplus (bucket 13-24, q=0.8: +0.004). Provisioning *below* one's own forecast is not a capacity policy, so the band adds nothing there rather than subtracting.
+
+---
+
+## 24. Capacity policy table and the honest framing
+
+**Choice:** `q = C_under / (C_under + C_over)` is reported as an explicit cost-ratio claim rather than a confidence level, at q = 0.8 / 0.9 / 0.95 (under-provisioning 4x / 9x / 19x as costly as idling).
+
+**Result (leave-one-fold-out):**
+
+| q | ratio | bucket | increment | breach rate | mean idle |
+|---:|---:|---|---:|---:|---:|
+| 0.80 | 4x | 1-6 | 0.321 | 0.244 | 0.253 |
+| 0.80 | 4x | 7-12 | 0.320 | 0.256 | 0.308 |
+| 0.80 | 4x | 13-24 | 0.014 | 0.205 | 0.145 |
+| 0.90 | 9x | 1-6 | 0.408 | 0.115 | 0.329 |
+| 0.90 | 9x | 7-12 | 0.383 | 0.115 | 0.359 |
+| 0.90 | 9x | 13-24 | 0.184 | 0.135 | 0.292 |
+| 0.95 | 19x | 1-6 | 0.463 | 0.064 | 0.377 |
+| 0.95 | 19x | 7-12 | 0.422 | 0.077 | 0.394 |
+| 0.95 | 19x | 13-24 | 0.350 | 0.083 | 0.447 |
+
+**Reason for the framing:** at q=0.9 the whole band is **0.18-0.41 CPU points, i.e. 1.9%-4.3% of a 9.41% mean utilisation**. Quantifying it this way is what justifies PLAN §5's conclusion: the fleet aggregate is nowhere near a capacity limit, so the band is cheap but also not where the risk lives. The band is a *forecast-error* margin, not a capacity margin. The default is **q = 0.9** (`frozen.BAND_QUANTILE`), chosen as a stated cost assumption, not fitted.
+
+**Caveat carried into the report:** these bands come from 13 overlapping folds inside a single 11-hour window, and the long-horizon bucket's increment is small only because the model over-forecasts during the post-bump slide (entry 22). A different regime would move it.
+
+---
+
+## 25. `predict` and `evaluate` are separate commands
+
+**Choice:** `python -m cwfc.predict --data challenge_data --output predictions.csv` produces the submission. It reads the holdout's `timestamp` column and nothing else from the holdout. Scoring is a separate command, written only when the holdout is actually scored.
+
+**Alternatives considered:** One command that predicts and reports accuracy.
+
+**Reason (PLAN §7):** if producing a submission also printed a holdout score, every rerun during development would leak that score into the author's decisions. Separating them makes the leakage boundary a property of the code, not of the author's discipline. The submission contract (column order, row count, bounds, integer counts) lives in `frozen.SUBMISSION_COLUMNS` / `OUTPUT_BOUNDS` so the writer cannot drift from SUBMISSION.md.
+
+**Per-target models as configuration:** `frozen.MODEL_BY_TARGET` maps each target to its model (`aggregate_cpu_utilization` → `profile_train_mean`, `active_vm_count` → `persistence`). This honours PLAN §1.4's "no special case in code": the constant target goes through identical machinery and gets persistence because that is its declared model, not because the pipeline branches on its name.
+
+---
+
+## 26. Leakage verified by test, not by inspection
+
+**Choice:** A no-lookahead test overwrites every holdout CPU reading with garbage, reruns prediction, and asserts bit-identical output — at the function level and through the CLI, across four corruptions (999.0, -1.0, 0.0, NaN).
+
+**Reason:** "I checked that the code does not use the holdout" is an assertion about author attention; a test that corrupts the holdout and demands identical predictions is a property the build enforces on every run. Confirmed on the real `data-v1` release as well, with max absolute difference 0.00e+00 for all four corruptions.
+
+**Suite now at 36 tests**, covering PLAN §8: target construction against a frame carrying identical duplicates, conflicting duplicates, a null reading, a mid-series gap, an out-of-range value, and a timestamp present with no valid reading; the zero-versus-NA distinction; split sizes derived rather than stated; folds never letting train indices reach test indices; the fold planner respecting the detector's minimum; period detection finding the planted period on a sawtooth and nothing on noise or a pure trend; profile centring and shrinkage; and the submission schema (exact column order, row count, bounds, integer counts, correct timestamps, header text).
+
+**One limitation pinned deliberately as a test:** a gap cannot be inferred from two timestamps, because the modal step of `[0, 600]` *is* 600. `test_gap_is_not_inferable_from_two_timestamps` documents this rather than asserting away a real property of the grid inference.

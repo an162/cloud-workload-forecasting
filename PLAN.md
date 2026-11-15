@@ -221,11 +221,26 @@ Per model and target, averaged over folds and by horizon step:
 
 ## 9. Order of work
 
-1. Targets + split + tests (mostly done).
-2. Phase profile and attribution pass (section 6, items 1-2).
-3. Rolling-origin harness, baselines, metrics.
-4. Candidates 5-7, selection, freeze, commit.
+1. ~~Targets + split + tests~~ DONE.
+2. ~~Phase profile and attribution pass (section 6, items 1-2)~~ DONE.
+3. ~~Rolling-origin harness, baselines, metrics~~ DONE.
+4. ~~Candidates, selection, freeze, commit~~ DONE - `profile_train_mean`
+   frozen in `cwfc/frozen.py`, committed before any holdout scoring.
 5. Workload analysis notebook with an operational note per finding.
-6. Bands + policy table. Core-weighted extension.
-7. Predict CLI, holdout scored once, README.
+6. ~~Bands + policy table~~ DONE (`cwfc/policy.py`, q=0.9 default).
+   Core-weighted extension still open.
+7. ~~Predict CLI~~ DONE (`python -m cwfc.predict`). Holdout **not yet
+   scored** - that is the next gate, and it happens once.
 8. Report (nine sections, 4-6 pages), leakage audit, public link.
+
+### Remaining before the holdout is scored
+
+- README: install, data download, one command to `predictions.csv`.
+- `evaluate` command (separate from `predict` by design, §7).
+
+### After scoring, no model may change
+
+Scoring is a one-shot gate. Entry 22 states the expected failure mode in
+advance: if the post-bump slide continues, `profile_train_mean` will
+over-forecast and `persistence` would have won. Confirming that is a
+finding; acting on it afterwards would be leakage.
