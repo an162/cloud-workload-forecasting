@@ -3,11 +3,11 @@
 Forecasts two-hour-ahead aggregate demand for a 10,000-VM Azure trace, with
 the leakage protocol, validation evidence and decision log that justify it.
 
-**Headline result:** the frozen model placed **fourth of five** on the holdout,
-losing to a last-cycle-mean baseline — and [`DECISIONS.md`](DECISIONS.md)
-entry 22, written *before* the holdout was scored, predicted exactly that
-failure. The reasoning behind the loss is the main finding; see
-[`reports/final_report.md`](reports/final_report.md).
+**Holdout result:** the frozen model scored MAE 0.1609 and placed fourth of
+five, behind `last_cycle_mean` (0.1230), `seasonal_naive` (0.1400) and
+`persistence` (0.1468); [`DECISIONS.md`](DECISIONS.md) entry 22, written before
+scoring, predicted that failure and §7 of
+[`reports/final_report.md`](reports/final_report.md) explains it.
 
 ---
 
@@ -102,8 +102,8 @@ skip the 112 MB download.
 ## Main modelling decisions
 
 Full reasoning, with alternatives and outcomes, in
-[`DECISIONS.md`](DECISIONS.md) (31 entries); the methodology spec is
-[`PLAN.md`](PLAN.md).
+[`DECISIONS.md`](DECISIONS.md) (32 entries); the methodology spec is
+[`PLAN.md`](PLAN.md), written before modelling and amended as logged.
 
 | Decision | Choice | Why |
 |---|---|---|
@@ -140,8 +140,8 @@ notebooks/       thin viewing layer, committed with outputs
 scripts/         fresh-clone reproduction check
 tests/           40 tests, incl. no-lookahead and a smoke dataset
 reports/         generated analysis, figures/ and final_report.md
-DECISIONS.md     31 decisions: choice, alternatives, reason, outcome
-PLAN.md          methodology spec, written before the modelling
+DECISIONS.md     32 decisions: choice, alternatives, reason, outcome
+PLAN.md          methodology spec, written before modelling, amended as logged
 predictions.csv  the submission
 ```
 
