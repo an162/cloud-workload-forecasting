@@ -1,6 +1,20 @@
 # Validation, selection and capacity policy
 
 Training window only. This is the evidence base the frozen model was selected on, reproduced; no holdout target value is read here.
+**Contents**
+
+1. [Rolling-origin design](#1-rolling-origin-design)
+2. [Model comparison across folds](#2-model-comparison-across-folds) — and the
+   paired tie-band that replaced the fold-sd one
+3. [Per-fold detail](#3-per-fold-detail)
+4. [Horizon behaviour and the predictability horizon](#4-horizon-behaviour-and-the-predictability-horizon)
+5. [Peak behaviour](#5-peak-behaviour)
+6. [Failure analysis and the limits of the evidence](#6-failure-analysis-and-the-limits-of-the-evidence)
+   — including why the reversion evidence is weak
+7. [Capacity band and policy](#7-capacity-band-and-policy)
+8. Extension: core-weighted utilisation → **separate file**,
+   [`04_core_weighted.md`](04_core_weighted.md)
+
 
 ## 1. Rolling-origin design
 
@@ -264,32 +278,4 @@ bucket     n  mean_increment  breach_rate  mean_idle  worst_shortfall
 
 > **Caveat.** Leave-one-fold-out removes a fold's own residuals but not the overlap between folds, so these breach rates remain optimistic and carry no confidence interval. Per-bucket rates are also uneven (~15% / 14% / 5%): one quantile plus a monotone constraint cannot equalise three buckets.
 
-
-## 8. Extension: core-weighted utilisation
-
-```
-                  statistic  core_weighted  unweighted
-                       mean         9.3131      9.4141
-                         sd         0.1770      0.1936
-            detected period        12.0000     12.0000
-          profile amplitude         0.4067      0.3416
-correlation with unweighted         0.9027      1.0000
-           frozen-model MAE         0.1578      0.1952
-            MAE / series sd         0.8910      1.0082
-```
-
-```
-                       mae  mae_sd    rmse  rmse_sd    bias    wape    mase  n_folds  skill_vs_persistence  skill_vs_last_cycle_mean
-model                                                                                                                               
-profile_train_mean  0.1578  0.0391  0.1759   0.0366  0.0665  1.6999  1.2562       13                0.1784                    0.2457
-train_mean          0.1740  0.0301  0.2005   0.0270  0.0644  1.8732  1.3850       13                0.0939                    0.1681
-persistence         0.1920  0.0776  0.2243   0.0825  0.0390  2.0575  1.5257       13                0.0000                    0.0819
-last_cycle_mean     0.2091  0.0571  0.2376   0.0589  0.0800  2.2473  1.6634       13               -0.0892                    0.0000
-seasonal_naive      0.2146  0.0511  0.2433   0.0496  0.0800  2.3045  1.7055       13               -0.1175                   -0.0259
-```
-
-- **total cores**: 28,316 (constant: True)
-- **'>24' bucket**: mapped to 24 cores, a stated lower bound
-
-> **Operational note.** Capacity is bought in cores, not VMs. Weighting by cores gives a target that is **both more predictable and more cyclical** - same model, MAE 0.158 vs 0.195, and a 19% larger hourly amplitude. If a team provisions cores, this is the better series to forecast, and it is the strongest candidate for follow-up work. Reported as an extension only: it did not influence the frozen choice.
-
+The core-weighted extension target is reported separately in `04_core_weighted.md`.

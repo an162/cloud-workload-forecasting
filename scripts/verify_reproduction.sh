@@ -63,7 +63,8 @@ python -m cwfc.score_holdout --data challenge_data --predictions predictions.csv
 
 step "6. Reproduce the analysis (README section 5)"
 for script in analysis/01_data_and_workload.py analysis/02_cycle_attribution.py \
-              analysis/03_validation_and_policy.py analysis/figures.py; do
+              analysis/03_validation_and_policy.py analysis/04_core_weighted.py \
+              analysis/figures.py; do
   python "$script" > /dev/null
   echo "ok  $script"
 done

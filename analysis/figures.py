@@ -27,6 +27,13 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 from cwfc import frozen  # noqa: E402
+from cwfc.attribution import (  # noqa: E402
+    contribution_shares,
+    cycle_jump_contributions,
+    movement_summary,
+    vm_timestamp_matrix,
+    window_shift_contributions,
+)
 from cwfc.data import load_cpu_readings, load_vm_metadata  # noqa: E402
 from cwfc.evaluate import (  # noqa: E402
     BASELINES,
@@ -103,11 +110,13 @@ class Context:
     vm_mean: pd.Series
     band_increments: dict
     nominal_q: float
+    movement: dict
+    subscription_shares: dict
 
 
 def load_context(data_dir: str = "challenge_data") -> Context:
     readings = load_cpu_readings(data_dir)
-    load_vm_metadata(data_dir)  # presence check; metadata unused by these figures
+    meta = load_vm_metadata(data_dir)
     targets = build_targets(readings)
     train, _ = chronological_split(targets, holdout_size=frozen.HOLDOUT_SIZE)
     y = train[AGGREGATE_CPU].to_numpy(dtype=float)
@@ -124,10 +133,25 @@ def load_context(data_dir: str = "challenge_data") -> Context:
     train_readings = readings[readings["timestamp"].isin(train_ts)]
     train_valid = train_readings.loc[valid_reading_mask(train_readings)]
 
+    # Per-VM contributions to the two aggregate moves, for the net/gross figure.
+    matrix = vm_timestamp_matrix(train_valid)
+    effect = phase_profile(y, period).effect
+    jump = cycle_jump_contributions(
+        matrix, period, int(np.nanargmin(effect)), int(np.nanargmax(effect))
+    )
+    shift = window_shift_contributions(
+        matrix, slice(BUMP_START, BUMP_END + 1), slice(0, BUMP_START)
+    )
+    contributions = {"hourly cycle": jump, "bump": shift}
+
     return Context(
         y_train=y,
         period=period,
         profile=phase_profile(y, period),
+        movement={k: movement_summary(v) for k, v in contributions.items()},
+        subscription_shares={
+            k: contribution_shares(v, meta, "subscription_id") for k, v in contributions.items()
+        },
         fold_preds=fold_preds,
         holdout=holdout_predictions(readings, frozen.HOLDOUT_SIZE),
         vm_mean=train_valid.groupby("vm_id")["avg_cpu"].mean(),
@@ -326,12 +350,81 @@ def fig_concentration(ctx: Context):
     return fig
 
 
+def fig_net_vs_gross(ctx: Context):
+    """Figure 6: the aggregate move is a residual of much larger activity."""
+    events = list(ctx.movement)
+    fig, (left, right) = plt.subplots(1, 2, figsize=(10.2, 4.3), dpi=DPI)
+    fig.patch.set_facecolor(SURFACE)
+    for ax in (left, right):
+        ax.set_facecolor(SURFACE)
+
+    # Left: gross movement against the net move it nets out to.
+    positions = np.arange(len(events))
+    width = 0.34
+    n_vms = len(ctx.vm_mean)
+    gross = [ctx.movement[e]["gross"] / n_vms for e in events]
+    net = [abs(ctx.movement[e]["net"]) / n_vms for e in events]
+    bar_gross = left.bar(positions - width / 2, gross, width, color=S2, zorder=3,
+                         label="gross movement (sum of |per-VM change|)")
+    bar_net = left.bar(positions + width / 2, net, width, color=S1, zorder=3,
+                       label="net move (what the aggregate shows)")
+    for index, (g, n) in enumerate(zip(gross, net)):
+        left.annotate(f"{g:.2f}", xy=(index - width / 2, g), xytext=(0, 4),
+                      textcoords="offset points", ha="center", color=S2,
+                      fontsize=9, fontweight="bold")
+        left.annotate(f"{n:.2f}", xy=(index + width / 2, n), xytext=(0, 4),
+                      textcoords="offset points", ha="center", color=S1,
+                      fontsize=9, fontweight="bold")
+        left.annotate(f"{g / n:.1f}x", xy=(index, max(g, n)), xytext=(0, 24),
+                      textcoords="offset points", ha="center", color=INK_2, fontsize=9)
+    _style(left, "Each aggregate move is a small residual",
+           "", "CPU points, summed over VMs / n")
+    left.set_xticks(positions)
+    left.set_xticklabels(events)
+    left.set_ylim(0, max(gross) * 1.34)
+
+    # Right: the same subscriptions, measured two ways.
+    ks = [1, 5, 10, 25]
+    shares = ctx.subscription_shares["bump"]
+    net_share = [float(shares["share_of_net"].head(k).sum()) for k in ks]
+    gross_share = [
+        float(shares.sort_values("share_of_gross", ascending=False)["share_of_gross"].head(k).sum())
+        for k in ks
+    ]
+    positions = np.arange(len(ks))
+    right.bar(positions - width / 2, gross_share, width, color=S2, zorder=3)
+    right.bar(positions + width / 2, net_share, width, color=S1, zorder=3)
+    for index, (g, n) in enumerate(zip(gross_share, net_share)):
+        right.annotate(f"{g:.0%}", xy=(index - width / 2, g), xytext=(0, 4),
+                       textcoords="offset points", ha="center", color=S2,
+                       fontsize=9, fontweight="bold")
+        right.annotate(f"{n:.0%}", xy=(index + width / 2, n), xytext=(0, 4),
+                       textcoords="offset points", ha="center", color=S1,
+                       fontsize=9, fontweight="bold")
+    right.axhline(1.0, color=MUTED, linewidth=1.0, linestyle=(0, (4, 3)), zorder=2)
+    right.annotate("100% of the net move", xy=(-0.45, 1.0), xytext=(0, 6),
+                   textcoords="offset points", ha="left", color=MUTED, fontsize=8.5)
+    _style(right, "Concentration depends on which you measure",
+           "top-k subscriptions, bump", "share of the move")
+    right.set_xticks(positions)
+    right.set_xticklabels([f"top {k}" for k in ks])
+    right.set_ylim(0, max(max(net_share), 1.0) * 1.22)
+    right.yaxis.set_major_formatter(lambda v, _: f"{v:.0%}")
+
+    # One legend for both panels: the two colours mean the same thing in each.
+    fig.legend(handles=[bar_gross, bar_net], frameon=False, fontsize=9,
+               labelcolor=INK_2, loc="lower center", ncols=2, bbox_to_anchor=(0.5, -0.02))
+    fig.tight_layout(rect=(0, 0.06, 1, 1))
+    return fig
+
+
 FIGURES = {
     "fig1_training_series": fig_training_series,
     "fig2_phase_profile": fig_phase_profile,
     "fig3_skill_by_horizon": fig_skill_by_horizon,
     "fig4_holdout": fig_holdout,
     "fig5_concentration": fig_concentration,
+    "fig6_net_vs_gross": fig_net_vs_gross,
 }
 
 

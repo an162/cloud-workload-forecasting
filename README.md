@@ -72,6 +72,7 @@ that score into the author's decisions.
 python analysis/01_data_and_workload.py      # -> reports/01_data_and_workload.md
 python analysis/02_cycle_attribution.py      # -> reports/02_cycle_attribution.md
 python analysis/03_validation_and_policy.py  # -> reports/03_validation_and_policy.md
+python analysis/04_core_weighted.py          # -> reports/04_core_weighted.md
 python analysis/figures.py                   # -> reports/figures/*.png
 ```
 

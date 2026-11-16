@@ -45,30 +45,25 @@ holdout.
 
 **The data is pristine — a finding, not a step to skip.** Across 1,340,000
 rows: 0 nulls, 0 non-finite values, 0 duplicate `(vm_id, timestamp)` pairs, 0
-values outside [0,100], and `min ≤ avg ≤ max` everywhere. The grid is perfectly
-regular (134 timestamps, every difference exactly 300 s), so the missing-data
-requirement is answered by a **documented proof of absence**.
+values outside [0,100], `min ≤ avg ≤ max` everywhere, and a perfectly regular
+grid. The missing-data requirement is answered by a **documented proof of
+absence**.
 
-The cleaning paths still exist and are tested, because a substituted dataset
-may not be clean: identical duplicates collapse, conflicting ones average, an
-absent grid slot yields NA for both targets, and a present timestamp with no
-usable reading yields count 0 and a NaN mean. **Zero and "no observation" stay
-distinct, and nothing is ever filled.** One validity predicate — `avg_cpu`
-non-null and finite — serves both targets, so "VM is active at *t*" and "VM
-contributes to the mean at *t*" cannot diverge. Out-of-range values are **kept
-and flagged**: an implausible reading is still real data, and dropping it would
-silently change the VM count.
+The cleaning paths still exist and are tested, since a substituted dataset may
+not be clean: duplicates collapse or average, an absent grid slot yields NA for
+both targets, and a present timestamp with no usable reading yields count 0 and
+a NaN mean — **zero and "no observation" stay distinct, and nothing is filled**.
+One validity predicate serves both targets so they cannot diverge; out-of-range
+values are kept and flagged, since dropping them would silently change the VM
+count.
 
-**`active_vm_count` is degenerate by curation.** It is constant at 10,000,
-derivable from row counts alone (1,340,000 = 10,000 × 134, zero duplicates).
-The bundled `DATA_CARD.md` states the rule directly — "Only VMs with complete
-traces across the selected observation window were eligible" — so zero churn is
-a construction artefact; a real fleet has arrivals and departures needing
-separate treatment.
-
-**Lifetimes are censored at both ends**, and **the sample is survivors only**:
-`timestamp_vm_created` is 0 for every VM, and 8,213 of 10,000 deletions (82.1%)
-sit on one timestamp — 2,591,400 s, the upstream 30-day trace boundary.
+**`active_vm_count` is degenerate by curation** — constant at 10,000, derivable
+from row counts alone. `DATA_CARD.md` states the rule: "Only VMs with complete
+traces across the selected observation window were eligible." Zero churn is a
+construction artefact; a real fleet needs arrivals and departures modelled
+separately. **Lifetimes are censored at both ends and the sample is survivors
+only**: creation is 0 for every VM, and 82.1% of deletions sit on the upstream
+30-day trace boundary.
 
 
 ---
@@ -102,10 +97,10 @@ Demand is heavily right-skewed: median per-VM CPU 5.50% against a mean of
 The hourly jump nets +0.349 points on 1.383 of gross movement (**4.0×
 cancellation**, 5,815 VMs up, 4,185 down); the bump nets +0.349 on 1.468 (4.2×).
 Roughly half the fleet moves *against* the aggregate each time, so net-only
-shares exceed 100% and overstate concentration 3–4× (appendix A.4). The two
-events have **different drivers** — per-VM contributions correlate +0.056 — and
-the bump is far more concentrated (top 10 subscriptions = 98.3% of net) than
-the cycle (38.3%).
+shares exceed 100% and overstate concentration 3–4× — appendix A.4 charts both
+measures side by side. The two events have **different drivers** (per-VM
+contributions correlate +0.056), and the bump is far more concentrated (top 10
+subscriptions = 98.3% of net) than the cycle (38.3%).
 
 **The detector I tested for catching the bump early was unusable**: recall 6/10
 at best, precision under 4%, and 60–450 false-alarm episodes per hour across
@@ -149,37 +144,32 @@ failure mode.
 Expanding-window rolling origin inside the training window: fit on `[0, o)`,
 forecast `[o, o+H)`. `min_train = max(2H, 4P+2) = 50`, origin step 3, **13
 folds** at origins 50, 53, …, 86. The first origin is the shortest window on
-which the detector can examine the 2P harmonic, so every fold answers the
-seasonality question for the same reason rather than one silently running
+which the detector can examine the 2P harmonic, so no fold silently runs
 non-seasonal; step 3 spreads origins across phases of the cycle.
 
 **Folds overlap, so every spread figure here is descriptive.** The paired
 standard error in appendix A.2 is a *ranking heuristic* — a scale for "is this
-gap bigger than the fold-to-fold wobble" — not a hypothesis test: 13 folds
-sharing most of their history do not satisfy the independence a test assumes,
-so no p-value is quoted.
+gap bigger than the fold-to-fold wobble" — not a hypothesis test, since 13
+folds sharing most of their history fail the independence one assumes.
 
 **The selection rule was amended before freezing.** The pre-registered rule —
 "within one fold-standard-deviation, the simpler model wins" — measures how
-much fold *difficulty* varies, not how reliably one model beats another. That
-band spanned 0.1949–0.2489, admitted five of nine candidates down to
-`persistence`, and applied literally would have selected `train_mean`. The
+much fold *difficulty* varies, not how reliably one model beats another; that
+band admitted five of nine candidates and would have selected `train_mean`. The
 amended rule uses one standard error of the **paired** per-fold difference,
-narrowing the band to 0.0071 and admitting exactly two models. Both rules and
-their outcomes are logged, so a reviewer can confirm the change did not depend
-on holdout performance.
+admitting exactly two models. Both rules and their outcomes are logged
+(entry 19), so a reviewer can confirm the change did not depend on holdout
+performance.
 
-**The profile had to earn its place mechanistically, not on MAE.** The two
-surviving models differed by 0.0002 MAE (0.03 paired se). The tiebreak was a
-falsifiable prediction in four parts: that `train_mean`'s bias is (i) positive
-at the dip phase and (ii) negative at the rebound, and that adding the profile
-shrinks (iii) the dip and (iv) the rebound bias. All four held — +0.2182 and
-−0.1427, reduced by 82% and 69% — with `corr(profile effect, per-phase bias) =
-−0.966`.
+**The profile had to earn its place mechanistically, not on MAE**, the two
+survivors differing by 0.0002. The tiebreak was a four-part falsifiable
+prediction — `train_mean`'s bias is positive at the dip and negative at the
+rebound, and the profile shrinks both — and all four held: +0.2182 and −0.1427,
+reduced 82% and 69%, with `corr(profile effect, per-phase bias) = −0.966`
+(entry 21).
 
-**Leakage controls** are in appendix A.7; the one worth stating here is that
-they are tested, not asserted: corrupting every holdout reading with 999 / −1 /
-0 / NaN leaves predictions **bit-identical**.
+**Leakage controls** are listed in the README, and tested rather than asserted:
+corrupting every holdout reading leaves predictions **bit-identical**.
 
 
 ---
@@ -188,19 +178,18 @@ they are tested, not asserted: corrupting every holdout reading with 999 / −1 
 
 ![Skill by horizon](figures/fig3_skill_by_horizon.png)
 
-**Predictability horizon.** Persistence's skill against `train_mean` runs
-+0.397, +0.408, +0.251, +0.263, +0.169, +0.021, +0.326, +0.170 over steps 1–8,
-first turns negative at **step 9**, and reaches −0.281 by step 24.
+**Predictability horizon.** Persistence's skill against `train_mean` is
+positive through step 8, first turns negative at **step 9**, and reaches −0.281
+by step 24.
 
 **The holdout contradicts this.** That ~40-minute horizon is a *validation*
 result; on the holdout the recency-anchored models led on cumulative MAE at
-every checkpoint out to step 24 (`last_cycle_mean` 0.1230, `persistence`
-0.1468, both ahead of `train_mean` 0.1746), so the predicted crossover never
-appeared. The horizon is **regime-dependent, not a property of the workload**:
-it held while the level oscillated and vanished once it trended.
+every checkpoint out to step 24, so the predicted crossover never appeared. The
+horizon is **regime-dependent, not a property of the workload**: it held while
+the level oscillated and vanished once it trended.
 
-Across the 13 training folds, `profile_train_mean` scored MAE **0.1952** versus
-0.2267 for persistence (**+13.9% skill**) and 0.2615 for last-cycle mean. Full
+Across the 13 training folds `profile_train_mean` scored MAE **0.1952** against
+0.2267 for persistence (+13.9% skill) and 0.2615 for last-cycle mean; full
 table in appendix A.1.
 
 ![Holdout](figures/fig4_holdout.png)
@@ -217,11 +206,10 @@ table in appendix A.1.
 
 The holdout mean is 9.2690 against a training mean of 9.4141 — the slide
 continued — and the frozen model over-forecast at **20 of 24 steps**. The two
-models that lost worst in validation placed first and second.
-
-The scoring command re-derives the submission and checks it on five points —
-column order, row count, timestamps matching the holdout, and each of the two
-target columns matching what the pipeline produces — all of which passed.
+models that lost worst in validation placed first and second. The scoring
+command re-derives the submission and checks it on five points (column order,
+row count, holdout timestamps, and each target column matching the pipeline);
+all passed.
 
 ---
 
@@ -299,8 +287,11 @@ range.**
 3. **Treat the hourly rebound as scheduled, not stochastic**, subtracting the
    profile before alerting or thresholds end up ~2× too wide. Whether to lean
    on recent history past ~40 minutes is **regime-dependent** (§6) — the folds
-   said no, the holdout said yes — so prefer a hedging method (damped local
-   trend) over committing to either level.
+   said no, the holdout said yes. A hedging method such as a damped local trend
+   is the natural candidate, but it is **untested here**, and the one damped
+   method I did validate (Holt-Winters with damped trend) ranked **last of
+   nine** with the widest fold spread, so treat it as a hypothesis rather than
+   a recommendation.
 4. **Only if `vm_category` is available at forecast time and is not derived
    from the VM's own later behaviour** (limitation 4), delay-insensitive
    capacity (8.26) is a safer place to borrow headroom from than interactive
@@ -350,16 +341,17 @@ VM saturates. Nothing here forecasts or validates that risk.
    scheduling claim. **`">24"` cores mapped to 24**, a stated lower bound.
 
 **Future work, in priority order.** (1) Re-run on a longer trace — the only fix
-for limitations 1 and 2. (2) Replace the global-mean level with a **damped
+for limitations 1 and 2. (2) Try replacing the global-mean level with a **damped
 local trend**, which hedges between reversion and continuation rather than
-betting on one; the direct remedy for the observed failure. (3) Evaluate
-core-weighted utilisation on held-out data. (4) Forecast the hot-tail share
-directly, since that is where operational risk sits. (5) Segment-level
-forecasting for the top ~25 subscriptions — 62% of the *net* hourly cycle but
-only 38% of its gross movement, and the gross figure is the one that bounds
-what a segment model could explain. (6) Evaluate across several rolling holdout
-windows; one 24-step holdout with no peak period cannot discriminate between
-models.
+betting on one. This is **untested**: damped Holt-Winters ranked last of nine in
+validation (MAE 0.2875, fold sd 0.241), so a damped *level* is a hypothesis
+suggested by the failure, not a result. (3) Evaluate core-weighted utilisation
+on held-out data. (4) Forecast the hot-tail share directly, since that is where
+operational risk sits. (5) Segment-level forecasting for the top ~25
+subscriptions — 62% of the *net* hourly cycle but only 38% of its gross
+movement, and the gross figure bounds what a segment model could explain.
+(6) Evaluate across several rolling holdout windows; one 24-step holdout with
+no peak period cannot discriminate between models.
 
 ---
 
@@ -437,6 +429,8 @@ equalise the three buckets' breach rates.
 
 ### A.4 Net versus gross attribution
 
+![Net versus gross](figures/fig6_net_vs_gross.png)
+
 | event | net | gross | cancellation | VMs up / down |
 |---|---:|---:|---:|---:|
 | hourly dip→rebound | +0.349 | 1.383 | 4.0× | 5,815 / 4,185 |
@@ -446,6 +440,7 @@ equalise the three buckets' breach rates.
 |---|---:|---:|
 | hourly cycle | 38.3% | **18.1%** |
 | bump | 98.3% | **28.3%** |
+
 
 ### A.5 Prospective detector
 
@@ -470,23 +465,7 @@ read**; the raw MAE row is shown only to make that scaling explicit.
 | **MAE / series sd** | **0.891** | **1.008** |
 | (raw MAE, not comparable across scales) | 0.1578 | 0.1952 |
 
-### A.7 Leakage controls
-
-- Split index derived from sorted unique timestamps; `110` appears nowhere in
-  code, and the training length is computed as `len(targets) − holdout_size`.
-- Period, phase profile, MASE scale, peak threshold and band quantiles are each
-  fitted per fold, on that fold's training slice only.
-- Metadata lifetime statistics (`avg_cpu`, `max_cpu`, `p95_max_cpu`,
-  `timestamp_vm_deleted`) are descriptive only, never features.
-- `cwfc.predict` reads only the holdout's `timestamp` column; `cwfc.score_holdout`
-  is the single place holdout targets are read.
-- Model, band and policy frozen in `src/cwfc/frozen.py`, committed and tagged
-  `frozen-before-holdout` before scoring.
-- Enforced by test: corrupting every holdout reading leaves predictions
-  bit-identical, and a 200-VM × 60-timestamp smoke dataset at a different
-  cadence and period runs the documented command end to end.
-
-### A.8 Reproducing this report
+### A.7 Reproducing this report
 
 ```bash
 python -m pytest -q

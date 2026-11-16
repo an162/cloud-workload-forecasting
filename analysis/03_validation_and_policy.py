@@ -54,6 +54,20 @@ r = Report(
     "Training window only. This is the evidence base the frozen model was selected "
     "on, reproduced; no holdout target value is read here.",
 )
+r.text("""**Contents**
+
+1. [Rolling-origin design](#1-rolling-origin-design)
+2. [Model comparison across folds](#2-model-comparison-across-folds) — and the
+   paired tie-band that replaced the fold-sd one
+3. [Per-fold detail](#3-per-fold-detail)
+4. [Horizon behaviour and the predictability horizon](#4-horizon-behaviour-and-the-predictability-horizon)
+5. [Peak behaviour](#5-peak-behaviour)
+6. [Failure analysis and the limits of the evidence](#6-failure-analysis-and-the-limits-of-the-evidence)
+   — including why the reversion evidence is weak
+7. [Capacity band and policy](#7-capacity-band-and-policy)
+8. Extension: core-weighted utilisation → **separate file**,
+   [`04_core_weighted.md`](04_core_weighted.md)
+""")
 
 r.h2("1. Rolling-origin design")
 folds = fold_plan(N, horizon=H, period=P, step=STEP)
@@ -224,32 +238,7 @@ r.caveat("Leave-one-fold-out removes a fold's own residuals but not the overlap 
          "confidence interval. Per-bucket rates are also uneven (~15% / 14% / 5%): one "
          "quantile plus a monotone constraint cannot equalise three buckets.")
 
-r.h2("8. Extension: core-weighted utilisation")
-core_weighted = build_core_weighted_target(readings, meta)
-cw_train, _ = chronological_split(core_weighted, holdout_size=H)
-yw = cw_train[CORE_WEIGHTED_CPU].to_numpy(dtype=float)
-models = {**BASELINES, model: frozen.SELECTED_MODEL}
-cw_preds = rolling_origin_predictions(yw, horizon=H, step=STEP, models=models)
-pw, pu = phase_profile(yw, detect_period(yw)), phase_profile(y, P)
-r.table(pd.DataFrame({
-    "statistic": ["mean", "sd", "detected period", "profile amplitude",
-                  "correlation with unweighted", "frozen-model MAE", "MAE / series sd"],
-    "core_weighted": [yw.mean(), yw.std(ddof=1), detect_period(yw), pw.amplitude,
-                      np.corrcoef(yw, y)[0, 1],
-                      model_summary(cw_preds).loc[model, "mae"],
-                      model_summary(cw_preds).loc[model, "mae"] / yw.std(ddof=1)],
-    "unweighted": [y.mean(), y.std(ddof=1), P, pu.amplitude, 1.0,
-                   model_summary(preds).loc[model, "mae"],
-                   model_summary(preds).loc[model, "mae"] / y.std(ddof=1)],
-}), index=False)
-r.table(model_summary(cw_preds))
-r.kv([("total cores", f"{core_weighted['total_cores'].iloc[0]:,.0f} "
-                      f"(constant: {core_weighted['total_cores'].nunique() == 1})"),
-      ("'>24' bucket", "mapped to 24 cores, a stated lower bound")])
-r.note("Capacity is bought in cores, not VMs. Weighting by cores gives a target that "
-       "is **both more predictable and more cyclical** - same model, MAE 0.158 vs "
-       "0.195, and a 19% larger hourly amplitude. If a team provisions cores, this is "
-       "the better series to forecast, and it is the strongest candidate for follow-up "
-       "work. Reported as an extension only: it did not influence the frozen choice.")
+r.text("The core-weighted extension target is reported separately in "
+       "`04_core_weighted.md`.")
 
 r.save("03_validation_and_policy.md")
