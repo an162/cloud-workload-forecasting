@@ -377,13 +377,14 @@ def fig_net_vs_gross(ctx: Context):
                       fontsize=9, fontweight="bold")
         left.annotate(f"{g / n:.1f}x", xy=(index, max(g, n)), xytext=(0, 24),
                       textcoords="offset points", ha="center", color=INK_2, fontsize=9)
-    _style(left, "Each aggregate move is a small residual",
+    _style(left, "Hourly cycle and bump: each move is\na small residual",
            "", "CPU points, summed over VMs / n")
     left.set_xticks(positions)
     left.set_xticklabels(events)
     left.set_ylim(0, max(gross) * 1.34)
 
-    # Right: the same subscriptions, measured two ways.
+    # Right: subscriptions measured two ways - bump only. The hourly cycle's
+    # top-25 shares (62% net / 38% gross) are in the report, not this panel.
     ks = [1, 5, 10, 25]
     shares = ctx.subscription_shares["bump"]
     net_share = [float(shares["share_of_net"].head(k).sum()) for k in ks]
@@ -402,10 +403,10 @@ def fig_net_vs_gross(ctx: Context):
                        textcoords="offset points", ha="center", color=S1,
                        fontsize=9, fontweight="bold")
     right.axhline(1.0, color=MUTED, linewidth=1.0, linestyle=(0, (4, 3)), zorder=2)
-    right.annotate("100% of the net move", xy=(-0.45, 1.0), xytext=(0, 6),
+    right.annotate("100% of the net bump", xy=(-0.45, 1.0), xytext=(0, 6),
                    textcoords="offset points", ha="left", color=MUTED, fontsize=8.5)
-    _style(right, "Concentration depends on which you measure",
-           "top-k subscriptions, bump", "share of the move")
+    _style(right, "Bump only: concentration depends\non which you measure",
+           "top-k subscriptions, bump", "share of the bump")
     right.set_xticks(positions)
     right.set_xticklabels([f"top {k}" for k in ks])
     right.set_ylim(0, max(max(net_share), 1.0) * 1.22)

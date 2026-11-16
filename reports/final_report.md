@@ -349,7 +349,8 @@ suggested by the failure, not a result. (3) Evaluate core-weighted utilisation
 on held-out data. (4) Forecast the hot-tail share directly, since that is where
 operational risk sits. (5) Segment-level forecasting for the top ~25
 subscriptions — 62% of the *net* hourly cycle but only 38% of its gross
-movement, and the gross figure bounds what a segment model could explain.
+movement (for the bump: 142% and 45%, appendix A.4), and the gross figure
+bounds what a segment model could explain.
 (6) Evaluate across several rolling holdout windows; one 24-step holdout with
 no peak period cannot discriminate between models.
 
@@ -431,15 +432,19 @@ equalise the three buckets' breach rates.
 
 ![Net versus gross](figures/fig6_net_vs_gross.png)
 
+Left panel: both events. Right panel: **the bump only**. Its top-25 bars
+(142% of net, 45% of gross) are bump figures. The hourly cycle's top 25 are
+62% of net and 38% of gross, which the figure does not plot.
+
 | event | net | gross | cancellation | VMs up / down |
 |---|---:|---:|---:|---:|
 | hourly dip→rebound | +0.349 | 1.383 | 4.0× | 5,815 / 4,185 |
 | bump (steps 53–72) | +0.349 | 1.468 | 4.2× | 4,727 / 5,273 |
 
-| top-10 subscriptions | share of net | share of gross |
-|---|---:|---:|
-| hourly cycle | 38.3% | **18.1%** |
-| bump | 98.3% | **28.3%** |
+| subscriptions | top-10 net | top-10 gross | top-25 net | top-25 gross |
+|---|---:|---:|---:|---:|
+| hourly cycle | 38.3% | **18.1%** | 62.4% | **38.2%** |
+| bump | 98.3% | **28.3%** | 142.5% | **45.3%** |
 
 
 ### A.5 Prospective detector

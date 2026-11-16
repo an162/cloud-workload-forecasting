@@ -69,4 +69,15 @@ for script in analysis/01_data_and_workload.py analysis/02_cycle_attribution.py 
   echo "ok  $script"
 done
 
+step "7. Rebuild the notebook from current code"
+python scripts/build_notebook.py
+python - "$REPO_ROOT/notebooks/workload_analysis.ipynb" notebooks/workload_analysis.ipynb <<'EOF'
+import json, sys
+committed, rebuilt = (json.load(open(p)) for p in sys.argv[1:])
+cells = lambda nb: [(c["cell_type"], "".join(c["source"])) for c in nb["cells"]]
+if cells(committed) != cells(rebuilt):
+    sys.exit("committed notebook cells differ from scripts/build_notebook.py; rebuild and commit it")
+print("notebook executed; cells match the committed notebook")
+EOF
+
 printf '\n\033[32mALL README STEPS REPRODUCED\033[0m  (workdir: %s)\n' "$WORKDIR"
