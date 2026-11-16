@@ -428,3 +428,50 @@ Total cores are constant at 28,316 and all 10,000 VMs matched metadata, so no we
 - predicted values track the smoke data's own scale (10-35%), not the release's ~9.4%;
 - the core-weighted target builds, with `">24"` mapped to 24;
 - **a capacity band refuses to ship when no validation folds fit** — with 36 training points no fold supports a 24-step horizon, and `capacity_band` raises rather than inventing a band with nothing behind it.
+
+---
+
+## 30. HOLDOUT SCORED (one shot, after the freeze) — the predicted failure occurred
+
+**Command:** `python -m cwfc.score_holdout --data challenge_data --predictions predictions.csv`, run once at tag `frozen-before-holdout`. Submission integrity passed on all five checks (column order, row count, timestamps, and both target columns matching what the pipeline produces).
+
+**`aggregate_cpu_utilization` — the frozen model placed fourth of five.**
+
+| model | MAE | RMSE | bias | WAPE | MASE | skill vs persistence |
+|---|---:|---:|---:|---:|---:|---:|
+| last_cycle_mean | **0.1230** | 0.1613 | −0.053 | 1.33% | 1.016 | +0.162 |
+| seasonal_naive | 0.1400 | 0.1590 | −0.053 | 1.51% | 1.156 | +0.046 |
+| persistence | 0.1468 | 0.1848 | −0.104 | 1.58% | 1.212 | 0.000 |
+| **profile_train_mean** (selected) | **0.1609** | 0.1941 | **+0.145** | 1.74% | 1.328 | **−0.096** |
+| train_mean | 0.1746 | 0.2105 | +0.145 | 1.88% | 1.442 | −0.189 |
+
+**This is entry 22's failure mode, realised.** That entry, written before the gate, said: "the holdout immediately follows the slide, so if the decline continues, the selected model will over-forecast it and `persistence` would have scored better." The holdout mean is 9.2690 against a training mean of 9.4141 — the slide did continue — and the selected model's bias is **+0.145**, over-forecasting at 20 of 24 steps. The fold ranking inverted almost exactly: the two models that lost worst in training validation (`last_cycle_mean`, `seasonal_naive`) placed first and second.
+
+**No changes follow.** The selection stands as made, on the training evidence available at the time, with the failure stated in advance. Acting on this result would be the leakage the protocol exists to prevent. What it buys is a calibrated statement about *why* the method failed, which is worth more than a better number obtained by cheating.
+
+**What it says about the methodology, honestly:**
+- The paired-se tie-band (entry 19) picked between two models that were genuinely indistinguishable, and that part held: `profile_train_mean` and the dropped AR(1) variant would have scored within noise of each other here too.
+- The *level* estimator was the consequential choice, and the training folds pointed the wrong way. Thirteen overlapping folds inside one 11-hour window could not distinguish "mean-reverting" from "slowly declining", because only one episode of either was observable. Entry 18 already flagged that the reversion evidence rested on one event; the holdout shows the same single-episode problem also undermined the *mean-anchored* choice.
+- The gate diagnostic (entry 21) was still right about what it tested: the phase profile does remove dip/rebound bias. The selected model beat `train_mean` on the holdout (0.1609 vs 0.1746, skill +0.079), so the profile component helped. The level it was bolted onto is what lost.
+
+**`active_vm_count`:** all five models MAE 0.0000, MASE NaN, skill NaN — exactly as predicted for a target that is constant by curation (entry 7). The holdout is 10,000 at all 24 timestamps.
+
+**Peak analysis is vacuous on this holdout:** the training 90th percentile is 9.6684 and the holdout maximum is 9.6360, so **zero holdout points qualify as peaks**. The peak-period analysis therefore has no observations and the §4 peak metric is undefined here. Reported as a gap in the evaluation rather than a passing grade. The holdout contains no high-load period at all — it is the tail of the decline, and then a mild recovery (slope +0.017/step over the 24 steps, from 9.168 up to 9.428).
+
+---
+
+## 31. Capacity band on the holdout: zero breaches, and that is not a success
+
+**Result:** 0 breaches of 24 (0.0%) against a 10% target, with mean idle headroom 0.5125 points.
+
+| bucket | increment | breaches | breach rate | mean idle |
+|---|---:|---:|---:|---:|
+| 1-6 | 0.364 | 0 | 0.0% | 0.644 |
+| 7-12 | 0.368 | 0 | 0.0% | 0.582 |
+| 13-24 | 0.368 | 0 | 0.0% | 0.412 |
+
+**Why this is not a win.** The band held for the same reason the point forecast lost: the model over-forecast throughout, so the actual never came near the upper bound. A band whose point forecast is biased high will not breach regardless of whether its width is right. The 0% rate is therefore uninformative about band calibration — it confirms the direction of the bias, not the quality of the quantile estimate.
+
+**The cost side is the real reading.** 0.51 points of mean idle headroom on a series whose total training range is 0.80 points means the policy reserved more headroom than the entire observed variation of the signal. At 9.3% mean utilisation that is operationally free, which is the honest framing from PLAN §5 — but on a tighter-running fleet this would be visible waste, and the monotone constraint (entry 27) contributed to it by widening the long-horizon bucket from 0.178 to 0.368.
+
+**Carried into the report as a limitation, not a finding:** one 24-step holdout containing zero peak points cannot validate a capacity band. The band's calibration evidence remains the 13 overlapping training folds, with the overlap caveat from entry 27 intact.

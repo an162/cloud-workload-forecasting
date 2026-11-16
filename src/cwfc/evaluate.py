@@ -251,3 +251,102 @@ def failure_analysis(preds: pd.DataFrame, model: str) -> dict:
         "worst_step_y_true": float(worst_row["y_true"]),
         "worst_step_y_pred": float(worst_row["y_pred"]),
     }
+
+
+# ---------------------------------------------------------------------------
+# Holdout scoring CLI
+#
+# Deliberately separate from `cwfc.predict` (PLAN 7): producing a submission
+# must never print a holdout score, or every development rerun would leak it
+# into the author's decisions. This module reads holdout target values; the
+# prediction path does not.
+# ---------------------------------------------------------------------------
+
+
+def holdout_predictions(
+    readings: "pd.DataFrame",
+    holdout_size: int,
+    targets: tuple[str, ...] | None = None,
+) -> pd.DataFrame:
+    """Score-ready frame: every declared model forecast against the holdout.
+
+    One "fold" whose training slice is the whole training window. Each model
+    is refitted on all of it, as PLAN 2 prescribes, and the MASE scale and
+    peak threshold come from that same training window - never from the
+    holdout being scored.
+    """
+    from cwfc import frozen
+    from cwfc.targets import build_targets, chronological_split
+
+    model_set = dict(BASELINES)
+    model_set[frozen.SELECTED_MODEL_NAME] = frozen.SELECTED_MODEL
+
+    target_names = targets or tuple(frozen.MODEL_BY_TARGET)
+    built = build_targets(readings)
+    train, holdout = chronological_split(built, holdout_size=holdout_size)
+
+    rows: list[dict] = []
+    for target in target_names:
+        history = train[target].to_numpy(dtype=float)
+        actual = holdout[target].to_numpy(dtype=float)
+        if np.isnan(history).any():
+            raise ValueError(f"training window for {target!r} contains gaps")
+
+        period = detect_period(history)
+        scale = metrics.naive_scale(history)
+        peak_threshold = float(np.quantile(history, PEAK_QUANTILE))
+
+        for name, fn in model_set.items():
+            pred = np.asarray(fn(history, holdout_size, period), dtype=float)
+            for h in range(holdout_size):
+                rows.append(
+                    {
+                        "target": target,
+                        "model": name,
+                        "fold": 0,
+                        "origin": len(history),
+                        "step": h + 1,
+                        "position": len(history) + h,
+                        "timestamp": int(holdout["timestamp"].iloc[h]),
+                        "y_true": actual[h],
+                        "y_pred": pred[h],
+                        "period": period,
+                        "mase_scale": scale,
+                        "peak_threshold": peak_threshold,
+                        "is_selected": name == frozen.MODEL_NAME_BY_TARGET.get(target),
+                    }
+                )
+
+    out = pd.DataFrame(rows)
+    out["error"] = out["y_pred"] - out["y_true"]
+    out["abs_error"] = out["error"].abs()
+    out["is_peak"] = out["y_true"] >= out["peak_threshold"]
+    return out
+
+
+def holdout_summary(scored: pd.DataFrame) -> pd.DataFrame:
+    """Section 4 metric table for one target's holdout scores."""
+    rows = []
+    for model, group in scored.groupby("model", sort=False):
+        rows.append(
+            {
+                "model": model,
+                "mae": metrics.mae(group["y_true"], group["y_pred"]),
+                "rmse": metrics.rmse(group["y_true"], group["y_pred"]),
+                "bias": metrics.bias(group["y_true"], group["y_pred"]),
+                "wape": metrics.wape(group["y_true"], group["y_pred"]),
+                "mase": metrics.mase(
+                    group["y_true"], group["y_pred"], float(group["mase_scale"].iloc[0])
+                ),
+                "selected": bool(group["is_selected"].iloc[0]),
+            }
+        )
+    table = pd.DataFrame(rows).set_index("model")
+
+    for base in ("persistence", "last_cycle_mean", "train_mean"):
+        if base in table.index:
+            base_mae = table.loc[base, "mae"]
+            table[f"skill_vs_{base}"] = (
+                np.nan if base_mae == 0 else 1.0 - table["mae"] / base_mae
+            )
+    return table.sort_values("mae")
