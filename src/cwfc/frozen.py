@@ -57,9 +57,21 @@ INTEGER_TARGETS = (ACTIVE_VM_COUNT,)
 #: cannot drift from the contract.
 SUBMISSION_COLUMNS = ("timestamp", ACTIVE_VM_COUNT, AGGREGATE_CPU)
 
-#: Band quantile for the capacity policy. q = C_under / (C_under + C_over),
-#: so 0.9 asserts that running short costs nine times what idling costs.
-BAND_QUANTILE = 0.9
+#: The capacity policy's cost assumption, expressed as the breach rate it
+#: tolerates: `target = 1 - q` where `q = C_under / (C_under + C_over)`. A 10%
+#: target asserts that running short costs nine times what idling costs.
+#:
+#: This - not the nominal quantile - is the policy claim. The nominal quantile
+#: fed to the band is a *calibration* knob derived from this target by replay
+#: (`policy.select_nominal_q`), because a band built at nominal 0.90 did not
+#: breach 10% of the time out of fold. Fixing the nominal quantile instead
+#: would state a cost ratio the policy does not actually deliver.
+TARGET_BREACH_RATE = 0.10
+COST_RATIO = 9.0  # = q / (1 - q) at q = 0.90, the target this encodes
+
+#: Band widths are constrained non-decreasing across horizon buckets; see
+#: policy.increments_from_residuals for why the raw quantiles are not used.
+BAND_MONOTONE = True
 
 HOLDOUT_SIZE = 24
 ORIGIN_STEP = 3

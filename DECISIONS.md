@@ -357,3 +357,74 @@ Bias equal to MAE means no error changed sign. Fold-sequence bias runs −0.289 
 **Suite now at 36 tests**, covering PLAN §8: target construction against a frame carrying identical duplicates, conflicting duplicates, a null reading, a mid-series gap, an out-of-range value, and a timestamp present with no valid reading; the zero-versus-NA distinction; split sizes derived rather than stated; folds never letting train indices reach test indices; the fold planner respecting the detector's minimum; period detection finding the planted period on a sawtooth and nothing on noise or a pure trend; profile centring and shrinkage; and the submission schema (exact column order, row count, bounds, integer counts, correct timestamps, header text).
 
 **One limitation pinned deliberately as a test:** a gap cannot be inferred from two timestamps, because the modal step of `[0, 600]` *is* 600. `test_gap_is_not_inferable_from_two_timestamps` documents this rather than asserting away a real property of the grid inference.
+
+---
+
+## 27. Band: nominal quantile calibrated, widths constrained non-decreasing
+
+**Choice:** Three changes to the band, all before the holdout gate.
+
+1. **The cost claim moved from the nominal quantile to the target breach rate.** `frozen.TARGET_BREACH_RATE = 0.10` encodes the 9x under/over cost ratio. The nominal quantile fed to the band is *derived* by leave-one-fold-out replay (`policy.select_nominal_q`) as the smallest q achieving that breach rate.
+2. **Widths constrained non-decreasing across horizon buckets** (running maximum in horizon order).
+3. **The overlap caveat stated explicitly** in `replay_policy`'s docstring and here.
+
+**Reason for (1):** a band built at nominal q=0.90 breached 12.5% of the time out of fold, not 10%. Fixing the nominal quantile therefore advertises a cost ratio the policy does not deliver. Calibrating against the replayed breach rate makes the stated assumption the thing that actually holds.
+
+**Reason for (2):** the raw quantiles *fall* with horizon (0.407 / 0.385 / 0.178 at q=0.90), which would claim a two-hour-ahead forecast needs less headroom than a thirty-minute one. That is an artefact of the selected model increasingly over-forecasting during the post-bump slide (entry 22), not a property of forecast uncertainty, which cannot shrink as the horizon grows. The constraint encodes that prior and is deliberately conservative.
+
+**Interaction, worth noting:** the two changes push in opposite directions. Monotonicity alone widened the long-horizon band from 0.178 to 0.407 and dropped the breach rate at nominal 0.90 from 12.5% to 7.4% — now *over*-covering. So the calibrated nominal q came out **below** 0.90, at **0.875**, achieving an overall replayed breach rate of **9.9%**.
+
+**Shipped band:** nominal q = 0.875, increments 0.364 / 0.368 / 0.368 points across buckets 1-6 / 7-12 / 13-24.
+
+| bucket | increment | replayed breach | mean idle |
+|---|---:|---:|---:|
+| 1-6 | 0.367 | 0.154 | 0.290 |
+| 7-12 | 0.371 | 0.141 | 0.347 |
+| 13-24 | 0.371 | 0.051 | 0.459 |
+| **overall** | 0.369 | **0.099** | 0.389 |
+
+**Known unevenness, not hidden:** the overall rate hits the 10% target but the per-bucket rates do not — short horizons breach ~15% while the long bucket breaches 5%. One quantile plus a monotone constraint cannot equalise all three. Per-bucket calibration would fix it at the cost of three parameters fitted on 78-156 points each; left as a single parameter deliberately, with the unevenness reported.
+
+**Caveat (3):** leave-one-fold-out removes a fold's own residuals but **not the overlap between folds** — expanding-window origins share every earlier observation, so a held-out fold's errors stay correlated with the residuals used to build its band. These breach rates are less optimistic than in-sample ones but are still not out-of-sample estimates in the independent-sample sense, and carry no confidence interval. All of it rests on 13 overlapping folds inside a single 11-hour window.
+
+---
+
+## 28. Core-weighted utilisation reported as an extension (PLAN §1)
+
+**Choice:** `build_core_weighted_target` computes `sum(avg_cpu * cores) / sum(cores)` per timestamp, with `virtual_core_bucket` mapped to its numeric value and `">24"` mapped to **24 as a stated lower bound**. Run through the harness with the frozen model and all declared baselines. **Report only — it does not replace the required target and did not influence the frozen choice.**
+
+**Reason:** the required `aggregate_cpu_utilization` weights every VM equally, so a 2-core VM at 90% counts as much as a 24-core VM at 10%. Capacity is bought in cores, so this is closer to the quantity a planner provisions.
+
+**Result — the capacity-relevant target is both more predictable and more cyclical:**
+
+| | core-weighted | unweighted |
+|---|---:|---:|
+| mean | 9.3131 | 9.4141 |
+| sd | 0.1770 | 0.1936 |
+| correlation with unweighted | 0.9027 | 1.0 |
+| detected period | 12 | 12 |
+| **profile amplitude** | **0.4067** | 0.3416 |
+| frozen-model MAE | **0.1578** | 0.1952 |
+| frozen-model WAPE | 1.70% | 2.06% |
+| skill vs persistence | **+0.178** | +0.139 |
+| MAE / series sd | **0.891** | 1.008 |
+
+Total cores are constant at 28,316 and all 10,000 VMs matched metadata, so no weighting mass was lost. The hourly cycle is **19% larger** in core-weighted terms, meaning the VMs driving it are above-average in size — consistent with entry 16's finding that the `>24`-core bucket had a net lift of 17x on the hourly jump. The frozen model also ranks *best on peaks* here (peak MAE 0.218 vs 0.265 for `train_mean`), unlike on the unweighted target where it sat mid-pack.
+
+**Operational reading:** if the team provisions cores, this target is the better one to forecast — same model, ~19% lower error relative to its own variability, and a stronger signal to exploit. Flagged as the strongest candidate for follow-up work.
+
+---
+
+## 29. Smoke-dataset test: the pipeline is not wired to the real release
+
+**Choice:** `tests/test_smoke_dataset.py` builds a ~200-VM x 60-timestamp dataset whose every structural parameter differs from the real release — 120 s cadence (not 300), seasonal period 6 (not 12), 60 timestamps (not 134), 200 VMs (not 10,000) — with 7 VM-timestamp rows deleted and one conflicting duplicate injected, then drives the documented `python -m cwfc.predict` command over it end to end.
+
+**Reason:** SUBMISSION.md states reviewers may swap in a tiny internal dataset to check the pipeline is not hard-coded. Rather than assert that it is not, this runs the real entry point on data that would break any hard-coded assumption, and checks the output contract holds.
+
+**What it pins:**
+- the injected defects are *detected* (1 conflicting duplicate group, 2 duplicate rows, step inferred as 120);
+- deleted rows make `active_vm_count` genuinely vary (min < 200 = max, more than one distinct value), so the degenerate-constant case is not assumed anywhere;
+- the submission contract holds on the new data: exact column order, 24 rows, correct timestamps, finite, in range;
+- predicted values track the smoke data's own scale (10-35%), not the release's ~9.4%;
+- the core-weighted target builds, with `">24"` mapped to 24;
+- **a capacity band refuses to ship when no validation folds fit** — with 36 training points no fold supports a 24-step horizon, and `capacity_band` raises rather than inventing a band with nothing behind it.

@@ -239,8 +239,10 @@ Per model and target, averaged over folds and by horizon step:
 4. ~~Candidates, selection, freeze, commit~~ DONE - `profile_train_mean`
    frozen in `cwfc/frozen.py`, committed before any holdout scoring.
 5. Workload analysis notebook with an operational note per finding.
-6. ~~Bands + policy table~~ DONE (`cwfc/policy.py`, q=0.9 default).
-   Core-weighted extension still open.
+6. ~~Bands + policy table~~ DONE (`cwfc/policy.py`). Nominal q calibrated
+   to the 10% target breach rate (ships q=0.875, replayed 9.9%), widths
+   constrained non-decreasing. ~~Core-weighted extension~~ DONE, report
+   only: same model, MAE 0.1578 vs 0.1952, profile amplitude 19% larger.
 7. ~~Predict CLI~~ DONE (`python -m cwfc.predict`). Holdout **not yet
    scored** - that is the next gate, and it happens once.
 8. Report (nine sections, 4-6 pages), leakage audit, public link.

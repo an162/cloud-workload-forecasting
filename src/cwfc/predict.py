@@ -22,7 +22,13 @@ import pandas as pd
 from cwfc import frozen
 from cwfc.data import load_cpu_readings
 from cwfc.evaluate import rolling_origin_predictions
-from cwfc.policy import final_band_increments, label_buckets
+from cwfc.policy import (
+    cost_ratio_for_q,
+    final_band_increments,
+    label_buckets,
+    overall_breach_rate,
+    select_nominal_q,
+)
 from cwfc.seasonal import detect_period
 from cwfc.targets import build_targets, chronological_split, diagnose_targets
 
@@ -74,9 +80,15 @@ def capacity_band(
     readings: pd.DataFrame,
     predictions: pd.DataFrame,
     holdout_size: int = frozen.HOLDOUT_SIZE,
-    q: float = frozen.BAND_QUANTILE,
+    target_breach: float = frozen.TARGET_BREACH_RATE,
+    nominal_q: float | None = None,
 ) -> pd.DataFrame:
-    """Upper capacity band for the CPU forecast, from training folds only."""
+    """Upper capacity band for the CPU forecast, from training folds only.
+
+    The nominal quantile is calibrated by leave-one-fold-out replay so the
+    band achieves `target_breach`, rather than assumed to achieve it. Pass
+    `nominal_q` to override the calibration explicitly.
+    """
     targets = build_targets(readings)
     train, _ = chronological_split(targets, holdout_size=holdout_size)
     history = train[frozen.AGGREGATE_CPU].to_numpy(dtype=float)
@@ -87,7 +99,15 @@ def capacity_band(
         step=frozen.ORIGIN_STEP,
         models={frozen.SELECTED_MODEL_NAME: frozen.SELECTED_MODEL},
     )
-    increments = final_band_increments(folds, frozen.SELECTED_MODEL_NAME, q)
+    q = (
+        select_nominal_q(folds, frozen.SELECTED_MODEL_NAME, target_breach)
+        if nominal_q is None
+        else float(nominal_q)
+    )
+    increments = final_band_increments(
+        folds, frozen.SELECTED_MODEL_NAME, q, monotone=frozen.BAND_MONOTONE
+    )
+    achieved = overall_breach_rate(folds, frozen.SELECTED_MODEL_NAME, q)
 
     steps = pd.DataFrame({"step": np.arange(1, holdout_size + 1)})
     steps["model"] = frozen.SELECTED_MODEL_NAME
@@ -101,8 +121,22 @@ def capacity_band(
     band["upper_band"] = np.minimum(
         band[frozen.AGGREGATE_CPU] + band["band_increment"], frozen.OUTPUT_BOUNDS[frozen.AGGREGATE_CPU][1]
     )
-    band["q"] = q
-    return band[[TIMESTAMP, "step", "bucket", frozen.AGGREGATE_CPU, "band_increment", "upper_band", "q"]]
+    band["nominal_q"] = q
+    band["target_breach_rate"] = target_breach
+    band["lofo_breach_rate"] = achieved
+    return band[
+        [
+            TIMESTAMP,
+            "step",
+            "bucket",
+            frozen.AGGREGATE_CPU,
+            "band_increment",
+            "upper_band",
+            "nominal_q",
+            "target_breach_rate",
+            "lofo_breach_rate",
+        ]
+    ]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -114,7 +148,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--band-output", default=None, help="optional capacity-band CSV")
     parser.add_argument(
-        "--band-q", type=float, default=frozen.BAND_QUANTILE, help="band quantile (cost ratio q/(1-q))"
+        "--target-breach",
+        type=float,
+        default=frozen.TARGET_BREACH_RATE,
+        help="breach rate the band must achieve; encodes the under/over cost ratio",
+    )
+    parser.add_argument(
+        "--band-q", type=float, default=None, help="override the calibrated nominal quantile"
     )
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args(argv)
@@ -139,11 +179,21 @@ def main(argv: list[str] | None = None) -> int:
         print(f"wrote           : {output} ({len(predictions)} rows)")
 
     if args.band_output:
-        band = capacity_band(readings, predictions, holdout_size=args.holdout, q=args.band_q)
+        band = capacity_band(
+            readings,
+            predictions,
+            holdout_size=args.holdout,
+            target_breach=args.target_breach,
+            nominal_q=args.band_q,
+        )
         band.to_csv(args.band_output, index=False)
         if not args.quiet:
-            print(f"wrote           : {args.band_output} (q={args.band_q}, "
-                  f"cost ratio {args.band_q / (1 - args.band_q):.0f}x)")
+            q = float(band["nominal_q"].iloc[0])
+            print(f"band            : target breach {args.target_breach:.0%} "
+                  f"(cost ratio {cost_ratio_for_q(1 - args.target_breach):.0f}x), "
+                  f"calibrated nominal q={q:.3f}, "
+                  f"replayed breach {float(band['lofo_breach_rate'].iloc[0]):.1%}")
+            print(f"wrote           : {args.band_output}")
     return 0
 
 

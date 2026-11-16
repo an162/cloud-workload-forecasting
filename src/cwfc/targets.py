@@ -197,3 +197,72 @@ def chronological_split(
 def timestamp_grid(frame: pd.DataFrame, timestamp_col: str = "timestamp") -> pd.Index:
     """Sorted distinct timestamps actually present in `frame`."""
     return pd.Index(pd.unique(frame[timestamp_col])).sort_values()
+
+
+CORE_WEIGHTED_CPU = "core_weighted_cpu_utilization"
+CORE_BUCKET_COLUMN = "virtual_core_bucket"
+
+
+def parse_core_bucket(value) -> float:
+    """Core count implied by a `virtual_core_bucket` label.
+
+    Buckets are labels, not measurements: ">24" is an open-ended bucket, and
+    this maps it to 24 - a deliberate **lower bound**, stated rather than
+    guessed. Any VM in that bucket has at least 24 cores, so the resulting
+    weight understates those VMs. On this release only 10 of 10,000 VMs fall
+    there, so the effect is negligible; on another dataset it may not be.
+    """
+    text = str(value).strip().lstrip(">").lstrip("<").strip()
+    if not text:
+        raise ValueError(f"cannot parse core bucket {value!r}")
+    return float(text)
+
+
+def build_core_weighted_target(
+    readings: pd.DataFrame,
+    meta: pd.DataFrame,
+    timestamp_col: str = "timestamp",
+    vm_col: str = "vm_id",
+    value_col: str = "avg_cpu",
+    bucket_col: str = CORE_BUCKET_COLUMN,
+) -> pd.DataFrame:
+    """Core-weighted fleet utilisation (PLAN section 1, extension target).
+
+    `sum(avg_cpu * cores) / sum(cores)` at each timestamp, over valid readings.
+
+    The required `aggregate_cpu_utilization` weights every VM equally, so a
+    2-core VM at 90% counts as much as a 24-core VM at 10%. Capacity is
+    provisioned in cores, not in VMs, so this is the quantity a planner
+    actually cares about. Reported as an extension; it does not replace the
+    required target.
+
+    VMs missing from `meta` are dropped and the loss is detectable by
+    comparing `n_vms` against the unweighted count.
+    """
+    frame, grid, _ = _prepare(
+        readings, timestamp_col, vm_col, value_col, CPU_LOWER, CPU_UPPER
+    )
+    cores = (
+        meta[[vm_col, bucket_col]]
+        .assign(**{"_cores": lambda d: d[bucket_col].map(parse_core_bucket)})
+        .set_index(vm_col)["_cores"]
+    )
+    joined = frame.join(cores, on=vm_col, how="inner")
+    joined["_weighted"] = joined[value_col] * joined["_cores"]
+
+    grouped = joined.groupby(timestamp_col)
+    weighted_sum = grouped["_weighted"].sum().reindex(grid)
+    core_sum = grouped["_cores"].sum().reindex(grid)
+    n_vms = grouped[vm_col].nunique().reindex(grid)
+
+    with np.errstate(invalid="ignore", divide="ignore"):
+        values = (weighted_sum / core_sum).to_numpy(dtype="float64")
+
+    return pd.DataFrame(
+        {
+            timestamp_col: grid.to_numpy(dtype="int64"),
+            CORE_WEIGHTED_CPU: values,
+            "total_cores": core_sum.to_numpy(dtype="float64"),
+            "n_vms": n_vms.to_numpy(dtype="float64"),
+        }
+    )
