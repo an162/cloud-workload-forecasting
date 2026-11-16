@@ -142,6 +142,8 @@ With zero duplicates, `rows = VMs x timestamps` forces every VM to be present ex
 
 **Result:** 13 folds, origins 48, 51, ..., 84, exactly as PLAN predicted. Folds overlap, so metric spread is reported as an indicator with no significance test.
 
+**Superseded in part by entry 13:** `min_train` became `max(2H, 4P+2) = 50`, moving the origins to 50, 53, ..., 86 (still 13 folds, last origin now exactly `N - H`). Every number in this entry predates that change; entries 14 onward use the revised plan.
+
 ---
 
 ## 12. Metric set (PLAN §4)
@@ -308,6 +310,8 @@ Bias equal to MAE means no error changed sign. Fold-sequence bias runs −0.289 
 | 0.90 | 0.100 | 0.103 | **0.125** |
 | 0.95 | 0.050 | 0.051 | **0.077** |
 
+**Partly superseded by entry 27**, which calibrates the nominal quantile and constrains the widths; the leave-one-fold-out-versus-pooled principle established here is unchanged.
+
 **Also decided:** a negative increment is floored at zero. At long horizons the model over-forecasts often enough that the 80th-percentile shortfall is already a surplus (bucket 13-24, q=0.8: +0.004). Provisioning *below* one's own forecast is not a capacity policy, so the band adds nothing there rather than subtracting.
 
 ---
@@ -333,6 +337,8 @@ Bias equal to MAE means no error changed sign. Fold-sequence bias runs −0.289 
 **Reason for the framing:** at q=0.9 the whole band is **0.18-0.41 CPU points, i.e. 1.9%-4.3% of a 9.41% mean utilisation**. Quantifying it this way is what justifies PLAN §5's conclusion: the fleet aggregate is nowhere near a capacity limit, so the band is cheap but also not where the risk lives. The band is a *forecast-error* margin, not a capacity margin. The default is **q = 0.9** (`frozen.BAND_QUANTILE`), chosen as a stated cost assumption, not fitted.
 
 **Caveat carried into the report:** these bands come from 13 overlapping folds inside a single 11-hour window, and the long-horizon bucket's increment is small only because the model over-forecasts during the post-bump slide (entry 22). A different regime would move it.
+
+**Superseded by entry 27:** the table above is the pre-calibration, pre-monotone band. The shipped band uses a nominal q of 0.875 calibrated against the replayed breach rate, with non-decreasing widths. `BAND_QUANTILE` was replaced by `TARGET_BREACH_RATE`.
 
 ---
 
