@@ -72,11 +72,30 @@ that score into the author's decisions.
 python analysis/01_data_and_workload.py      # -> reports/01_data_and_workload.md
 python analysis/02_cycle_attribution.py      # -> reports/02_cycle_attribution.md
 python analysis/03_validation_and_policy.py  # -> reports/03_validation_and_policy.md
+python analysis/figures.py                   # -> reports/figures/*.png
 ```
 
-Scripts rather than notebooks (ASSIGNMENT.md allows "notebooks/ or equivalent
-analysis"): a script has no hidden execution state, cannot ship stale outputs
-beside changed code, and regenerates its markdown on every run.
+The prose analysis lives in scripts rather than notebooks (ASSIGNMENT.md allows
+"notebooks/ or equivalent analysis"): a script has no hidden execution state,
+cannot ship stale outputs beside changed code, and regenerates its markdown on
+every run.
+
+[`notebooks/workload_analysis.ipynb`](notebooks/workload_analysis.ipynb) is a
+thin viewing layer over the same code — it imports `analysis/figures.py` rather
+than re-deriving anything, so it cannot drift from `reports/`. Committed with
+outputs so it reads without running.
+
+## 6. Verify a fresh clone reproduces everything
+
+```bash
+bash scripts/verify_reproduction.sh
+```
+
+Clones into a throwaway directory, follows every README step from a clean
+checkout — venv, install, tests, release download, checksum verification,
+prediction, scoring, analysis — and asserts the committed `predictions.csv` is
+reproduced byte-for-byte. Set `CWFC_RELEASE_CACHE=/path/to/data-v1.tar.gz` to
+skip the 112 MB download.
 
 ---
 
@@ -116,9 +135,11 @@ Full reasoning, with alternatives and outcomes, in
 src/cwfc/        targets, checks, seasonal, models, baselines, metrics,
                  validation, evaluate, policy, monitor, attribution,
                  frozen (the frozen choices), predict, score_holdout
-analysis/        three scripts that regenerate reports/
+analysis/        scripts that regenerate reports/ and the figures
+notebooks/       thin viewing layer, committed with outputs
+scripts/         fresh-clone reproduction check
 tests/           40 tests, incl. no-lookahead and a smoke dataset
-reports/         generated analysis + final_report.md
+reports/         generated analysis, figures/ and final_report.md
 DECISIONS.md     31 decisions: choice, alternatives, reason, outcome
 PLAN.md          methodology spec, written before the modelling
 predictions.csv  the submission

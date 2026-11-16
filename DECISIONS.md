@@ -481,3 +481,20 @@ Total cores are constant at 28,316 and all 10,000 VMs matched metadata, so no we
 **The cost side is the real reading.** 0.51 points of mean idle headroom on a series whose total training range is 0.80 points means the policy reserved more headroom than the entire observed variation of the signal. At 9.3% mean utilisation that is operationally free, which is the honest framing from PLAN §5 — but on a tighter-running fleet this would be visible waste, and the monotone constraint (entry 27) contributed to it by widening the long-horizon bucket from 0.178 to 0.368.
 
 **Carried into the report as a limitation, not a finding:** one 24-step holdout containing zero peak points cannot validate a capacity band. The band's calibration evidence remains the 13 overlapping training folds, with the overlap caveat from entry 27 intact.
+
+---
+
+## 32. Figures, notebook, and the fresh-clone check
+
+**Figures.** Five charts in `analysis/figures.py`, one source of truth for both the report and the notebook. Palette: the validated reference instance (categorical slots blue `#2a78d6` / orange `#eb6834` / aqua `#1baf7a` on light surface `#fcfcfb`), checked with the palette validator before any chart code was written — all gates pass on the all-pairs list, with aqua below 3:1 contrast, so the relief rule applies and **every series carries a visible direct label**.
+
+Three defects were found by rendering and inspecting the output rather than trusting the code:
+- **fig 4's legend was mislabelled.** `ax.legend([...])` binds positional labels to artists in *creation* order, so the swatches described the wrong series — the band's dashed line was labelled "last-cycle mean", and the actual series was labelled "frozen model". Fixed by attaching `label=` to each artist so the legend cannot drift from what is drawn. This is exactly the error a reviewer would catch and distrust the whole report for.
+- Label collisions in figs 1, 3, 4 and 5 (annotations over the title, over data lines, over the legend). Fixed with explicit limits, a right-hand label margin, and staggered end labels.
+- A redundant annotation in fig 3 duplicating the y-axis label; removed.
+
+**Notebook.** `notebooks/workload_analysis.ipynb` is deliberately thin — it imports `analysis/figures.py` and displays the same figure objects, so notebook and report cannot disagree. Committed with outputs. Two bugs fixed while building it: `figures.py` forced the Agg backend at import, so the notebook rendered **zero images** (now `matplotlib.use("Agg")` only when no backend is already chosen, and the notebook selects `%matplotlib inline` first); and each figure rendered **twice** (inline auto-display plus the cell's return-value repr), fixed with a trailing semicolon.
+
+**Report restructured** to ASSIGNMENT.md's nine sections in order, body ~2,650 words with detail tables moved to an appendix. The executive summary answers the brief's three questions with numbers. Framing is protocol-first: the pre-registered failure leads rather than being buried in error analysis.
+
+**Fresh-clone check.** `scripts/verify_reproduction.sh` clones into a throwaway directory and follows the README step by step — venv, editable install, 40 tests, real release download from GitHub, `sha256sum -c`, prediction, scoring, all analysis scripts — then asserts the committed `predictions.csv` is reproduced **byte-for-byte**. It also asserts the clone does *not* carry the release data, which is what SUBMISSION.md forbids committing. Verified passing end to end.
