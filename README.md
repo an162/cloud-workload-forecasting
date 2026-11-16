@@ -84,7 +84,9 @@ every run.
 [`notebooks/workload_analysis.ipynb`](notebooks/workload_analysis.ipynb) is a
 thin viewing layer over the same code — it imports `analysis/figures.py` rather
 than re-deriving anything, so it cannot drift from `reports/`. Committed with
-outputs so it reads without running.
+outputs so it reads without running. It is generated, not hand-edited:
+`python scripts/build_notebook.py` writes its cells, executes them against the
+current code and data, and saves it with fresh outputs.
 
 ## 6. Verify a fresh clone reproduces everything
 
@@ -129,6 +131,12 @@ Full reasoning, with alternatives and outcomes, in
 - `predict` and `score_holdout` are separate entry points.
 - Model, band and policy frozen in [`src/cwfc/frozen.py`](src/cwfc/frozen.py)
   and tagged `frozen-before-holdout` **before** scoring.
+
+## Tools used
+
+Built with an AI coding assistant (Claude Code). The assistant wrote the code
+and drafted the analysis and report under my direction; I reviewed each step
+and am responsible for the result.
 
 ## Layout
 

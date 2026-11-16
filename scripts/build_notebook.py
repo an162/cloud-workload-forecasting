@@ -37,7 +37,8 @@ cannot drift from `reports/`.
 - Decisions, with alternatives and outcomes: [`DECISIONS.md`](../DECISIONS.md)
 - Final report: [`reports/final_report.md`](../reports/final_report.md)
 
-Run from the repository root, with `challenge_data/` extracted."""),
+Run from inside `notebooks/` (where Jupyter opens it), with `challenge_data/`
+extracted at the repository root: the paths below are relative to `notebooks/`."""),
     ('code', 'a097c878', """\
 %matplotlib inline
 import sys
